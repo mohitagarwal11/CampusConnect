@@ -5,6 +5,30 @@
 import { getEventById, isPastEvent, isFullEvent } from './events'
 import { getUserById } from './auth'
 
+type RegistrationDebugDetails = Record<string, string | number | boolean | undefined>
+
+function logRegistrationDebug(
+  message: string,
+  details: RegistrationDebugDetails,
+) {
+  const entry = { message, ...details }
+  console.info(`[CampusConnect] ${message}`, entry)
+
+  // Forward client-side registration activity to the Next dev server too.
+  if (
+    typeof window !== 'undefined' &&
+    process.env.NODE_ENV !== 'production'
+  ) {
+    void fetch('/api/debug/registrations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry),
+    }).catch(() => {
+      // Debug logging should never affect registration behavior.
+    })
+  }
+}
+
 export type RegistrationStatus = 'confirmed' | 'cancelled'
 
 export interface Registration {
@@ -137,6 +161,10 @@ export function registerStudentForEvent(
   }
 
   if (isStudentRegistered(studentId, eventId)) {
+    logRegistrationDebug('Duplicate registration blocked', {
+      eventId,
+      studentId,
+    })
     return {
       success: false,
       message: 'Registration failed: You are already registered for this event.',
@@ -153,7 +181,15 @@ export function registerStudentForEvent(
   }
 
   registrations.push(newRegistration)
+  const seatsBefore = event.seatsAvailable
   event.seatsAvailable = Math.max(0, event.seatsAvailable - 1)
+  logRegistrationDebug('Seat count updated after registration', {
+    eventId,
+    studentId,
+    seatsBefore,
+    seatsAfter: event.seatsAvailable,
+    registeredCount: event.capacity - event.seatsAvailable,
+  })
 
   return {
     success: true,
@@ -190,12 +226,28 @@ export function cancelRegistration(
   }
 
   // Update registration status to cancelled
+  const event = getEventById(reg.eventId)
+  const seatsBefore = event?.seatsAvailable
   reg.status = 'cancelled'
 
   // Increase available seats safely
-  const event = getEventById(reg.eventId)
   if (event) {
     event.seatsAvailable = Math.min(event.capacity, event.seatsAvailable + 1)
+    logRegistrationDebug('Seat count updated after cancellation', {
+      eventId: reg.eventId,
+      registrationId,
+      studentId,
+      seatsBefore,
+      seatsAfter: event.seatsAvailable,
+      registrationStatus: reg.status,
+    })
+  } else {
+    logRegistrationDebug('Registration cancelled but event was not found', {
+      eventId: reg.eventId,
+      registrationId,
+      studentId,
+      registrationStatus: reg.status,
+    })
   }
 
   return {
