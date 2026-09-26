@@ -1,53 +1,62 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import Link from 'next/link'
-import { useAuth } from '@/components/AuthProvider'
+import { useState } from "react";
+import Link from "next/link";
+import { useAuth } from "@/components/AuthProvider";
 import {
   getRegistrationsForStudent,
   cancelRegistration,
+  cancelWaitlistEntry,
+  getWaitlistForStudent,
+  getWaitlistPosition,
   Registration,
-} from '@/data/registrations'
-import { getEventById, isPastEvent } from '@/data/events'
-import StatusBadge from '@/components/StatusBadge'
-import EmptyState from '@/components/EmptyState'
+  WaitlistEntry,
+} from "@/data/registrations";
+import { getEventById, isPastEvent } from "@/data/events";
+import StatusBadge from "@/components/StatusBadge";
+import EmptyState from "@/components/EmptyState";
 
 export default function RegistrationsPage() {
-  const { currentUser } = useAuth()
-  const [, setRefreshKey] = useState(0)
+  const { currentUser } = useAuth();
+  const [, setRefreshKey] = useState(0);
   const [feedback, setFeedback] = useState<{
-    type: 'success' | 'error'
-    message: string
-  } | null>(null)
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
-  if (currentUser.role !== 'student') {
+  if (currentUser.role !== "student") {
     return (
-      <section className="shell" style={{ padding: '56px 0' }}>
+      <section className="shell" style={{ padding: "56px 0" }}>
         <EmptyState
           title="This page is for students"
           description="Switch to a student account from the top-right menu to see registered events."
         />
       </section>
-    )
+    );
   }
 
-  const allStudentRegistrations = getRegistrationsForStudent(currentUser.id)
+  const allStudentRegistrations = getRegistrationsForStudent(currentUser.id);
+  const activeWaitlistEntries = getWaitlistForStudent(currentUser.id).filter(
+    (entry) =>
+      entry.status === "active" &&
+      getEventById(entry.eventId)?.cancelled !== true,
+  );
 
   // Filter out registrations for cancelled events
   const validRegistrations = allStudentRegistrations.filter((reg) => {
-    const event = getEventById(reg.eventId)
-    return event && !event.cancelled
-  })
+    const event = getEventById(reg.eventId);
+    return event && !event.cancelled;
+  });
 
   const upcomingRegistrations = validRegistrations.filter((reg) => {
-    const event = getEventById(reg.eventId)
-    return event && !isPastEvent(event)
-  })
+    const event = getEventById(reg.eventId);
+    return event && !isPastEvent(event);
+  });
 
   const pastRegistrations = validRegistrations.filter((reg) => {
-    const event = getEventById(reg.eventId)
-    return event && isPastEvent(event)
-  })
+    const event = getEventById(reg.eventId);
+    return event && isPastEvent(event);
+  });
 
   const handleCancel = (registrationId: string, eventName: string) => {
     if (
@@ -55,31 +64,45 @@ export default function RegistrationsPage() {
         `Are you sure you want to cancel your registration for "${eventName}"?`,
       )
     ) {
-      return
+      return;
     }
 
-    const result = cancelRegistration(registrationId, currentUser.id)
+    const result = cancelRegistration(registrationId, currentUser.id);
     if (result.success) {
       setFeedback({
-        type: 'success',
+        type: "success",
         message: `Cancelled registration for ${eventName}. 1 seat freed.`,
-      })
-      setRefreshKey((prev) => prev + 1)
+      });
+      setRefreshKey((prev) => prev + 1);
     } else {
       setFeedback({
-        type: 'error',
+        type: "error",
         message: result.message,
-      })
+      });
     }
-  }
+  };
+
+  const handleLeaveWaitlist = (entryId: string, eventName: string) => {
+    if (!confirm(`Leave the waitlist for "${eventName}"?`)) return;
+
+    const result = cancelWaitlistEntry(entryId, currentUser.id);
+    setFeedback({
+      type: result.success ? "success" : "error",
+      message: result.success
+        ? `Left the waitlist for ${eventName}.`
+        : result.message,
+    });
+    if (result.success) setRefreshKey((prev) => prev + 1);
+  };
 
   return (
-    <section className="shell" style={{ padding: '40px 0 64px' }}>
+    <section className="shell" style={{ padding: "40px 0 64px" }}>
       <div style={{ marginBottom: 28 }}>
         <span className="eyebrow-tag">signed up as {currentUser.name}</span>
         <h1 style={{ fontSize: 30, marginTop: 10 }}>My registrations</h1>
         <p style={{ marginTop: 8 }}>
-          Manage your upcoming event registrations and view past attendance history.
+          Manage your upcoming event registrations and view past attendance
+          history.
         </p>
       </div>
 
@@ -87,14 +110,16 @@ export default function RegistrationsPage() {
         <div
           style={{
             marginBottom: 24,
-            padding: '12px 16px',
-            borderRadius: 'var(--radius)',
+            padding: "12px 16px",
+            borderRadius: "var(--radius)",
             border: `1.5px solid ${
-              feedback.type === 'success' ? 'var(--green)' : 'var(--rust)'
+              feedback.type === "success" ? "var(--green)" : "var(--rust)"
             }`,
             background:
-              feedback.type === 'success' ? 'var(--green-bg)' : 'var(--rust-bg)',
-            color: feedback.type === 'success' ? '#1c4d34' : '#792411',
+              feedback.type === "success"
+                ? "var(--green-bg)"
+                : "var(--rust-bg)",
+            color: feedback.type === "success" ? "#1c4d34" : "#792411",
             fontSize: 14.5,
             fontWeight: 500,
           }}
@@ -103,7 +128,7 @@ export default function RegistrationsPage() {
         </div>
       )}
 
-      {validRegistrations.length === 0 ? (
+      {validRegistrations.length === 0 && activeWaitlistEntries.length === 0 ? (
         <EmptyState
           title="No registrations yet"
           description="Once you register for an event, it'll show up here."
@@ -114,14 +139,26 @@ export default function RegistrationsPage() {
           }
         />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 36 }}>
+          {activeWaitlistEntries.length > 0 && (
+            <div>
+              <h2 style={{ fontSize: 20, marginBottom: 14 }}>
+                Event Waitlists ({activeWaitlistEntries.length})
+              </h2>
+              <WaitlistList
+                entries={activeWaitlistEntries}
+                onLeave={handleLeaveWaitlist}
+              />
+            </div>
+          )}
+
           {/* Upcoming Section */}
           <div>
             <h2 style={{ fontSize: 20, marginBottom: 14 }}>
               Upcoming Events ({upcomingRegistrations.length})
             </h2>
             {upcomingRegistrations.length === 0 ? (
-              <p style={{ fontSize: 14, color: 'var(--ink-soft)' }}>
+              <p style={{ fontSize: 14, color: "var(--ink-soft)" }}>
                 No upcoming event registrations.
               </p>
             ) : (
@@ -149,53 +186,43 @@ export default function RegistrationsPage() {
         </div>
       )}
     </section>
-  )
+  );
 }
 
-function RegistrationList({
-  registrations,
-  onCancel,
-  isUpcoming,
+function WaitlistList({
+  entries,
+  onLeave,
 }: {
-  registrations: Registration[]
-  onCancel: (id: string, name: string) => void
-  isUpcoming: boolean
+  entries: WaitlistEntry[];
+  onLeave: (id: string, name: string) => void;
 }) {
   return (
-    <ul style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {registrations.map((reg) => {
-        const event = getEventById(reg.eventId)
-        if (!event) return null
-        const isCancelled = reg.status === 'cancelled'
-
-        const statusLabel = isCancelled
-          ? 'cancelled'
-          : isUpcoming
-            ? 'open'
-            : 'past'
+    <ul style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {entries.map((entry) => {
+        const event = getEventById(entry.eventId);
+        if (!event) return null;
 
         return (
           <li
-            key={reg.id}
+            key={entry.id}
             className="card-surface"
             style={{
-              padding: '18px 20px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
+              padding: "18px 20px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
               gap: 16,
-              flexWrap: 'wrap',
-              opacity: isCancelled ? 0.7 : 1,
+              flexWrap: "wrap",
             }}
           >
             <div>
               <Link
                 href={`/events/${event.id}`}
                 style={{
-                  fontFamily: 'var(--font-display)',
+                  fontFamily: "var(--font-display)",
                   fontWeight: 600,
                   fontSize: 17,
-                  textDecoration: 'none',
+                  textDecoration: "none",
                 }}
               >
                 {event.name}
@@ -203,22 +230,97 @@ function RegistrationList({
               <div
                 style={{
                   fontSize: 13.5,
-                  color: 'var(--ink-soft)',
+                  color: "var(--ink-soft)",
                   marginTop: 4,
                 }}
               >
-                {new Date(event.date).toLocaleDateString('en-IN', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}{' '}
+                Position #{getWaitlistPosition(entry)} · {event.venue}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <StatusBadge status="full" />
+              <button
+                className="btn btn-secondary"
+                onClick={() => onLeave(entry.id, event.name)}
+              >
+                Leave Waitlist
+              </button>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function RegistrationList({
+  registrations,
+  onCancel,
+  isUpcoming,
+}: {
+  registrations: Registration[];
+  onCancel: (id: string, name: string) => void;
+  isUpcoming: boolean;
+}) {
+  return (
+    <ul style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {registrations.map((reg) => {
+        const event = getEventById(reg.eventId);
+        if (!event) return null;
+        const isCancelled = reg.status === "cancelled";
+
+        const statusLabel = isCancelled
+          ? "cancelled"
+          : isUpcoming
+            ? "open"
+            : "past";
+
+        return (
+          <li
+            key={reg.id}
+            className="card-surface"
+            style={{
+              padding: "18px 20px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
+              flexWrap: "wrap",
+              opacity: isCancelled ? 0.7 : 1,
+            }}
+          >
+            <div>
+              <Link
+                href={`/events/${event.id}`}
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 600,
+                  fontSize: 17,
+                  textDecoration: "none",
+                }}
+              >
+                {event.name}
+              </Link>
+              <div
+                style={{
+                  fontSize: 13.5,
+                  color: "var(--ink-soft)",
+                  marginTop: 4,
+                }}
+              >
+                {new Date(event.date).toLocaleDateString("en-IN", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}{" "}
                 · {event.venue}
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <StatusBadge status={statusLabel} />
 
               {isUpcoming && !isCancelled && (
@@ -231,9 +333,8 @@ function RegistrationList({
               )}
             </div>
           </li>
-        )
+        );
       })}
     </ul>
-  )
+  );
 }
-

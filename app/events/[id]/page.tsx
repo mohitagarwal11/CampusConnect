@@ -1,59 +1,68 @@
-'use client'
+"use client";
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { getEventById, isPastEvent, isFullEvent, isRegistrationClosed } from '@/data/events'
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import {
+  getEventById,
+  isPastEvent,
+  isFullEvent,
+  isRegistrationClosed,
+} from "@/data/events";
 import {
   registerStudentForEvent,
   isStudentRegistered,
-} from '@/data/registrations'
-import { useAuth } from '@/components/AuthProvider'
-import StatusBadge from '@/components/StatusBadge'
-import EmptyState from '@/components/EmptyState'
+  joinEventWaitlist,
+  isStudentOnWaitlist,
+  getWaitlistForStudent,
+  getWaitlistPosition,
+} from "@/data/registrations";
+import { useAuth } from "@/components/AuthProvider";
+import StatusBadge from "@/components/StatusBadge";
+import EmptyState from "@/components/EmptyState";
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-IN', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
+  return new Date(iso).toLocaleDateString("en-IN", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 }
 
 function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-IN', {
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+  return new Date(iso).toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 export default function EventDetailPage({
   params,
 }: {
-  params: { id: string }
+  params: { id: string };
 }) {
-  const { currentUser } = useAuth()
-  const [, setRefreshKey] = useState(0)
+  const { currentUser } = useAuth();
+  const [, setRefreshKey] = useState(0);
   const [feedback, setFeedback] = useState<{
-    type: 'success' | 'error'
-    message: string
-  } | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [department, setDepartment] = useState('')
-  const [showRegistrationForm, setShowRegistrationForm] = useState(false)
-  const [countdownNow, setCountdownNow] = useState<number | null>(null)
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [department, setDepartment] = useState("");
+  const [showRegistrationForm, setShowRegistrationForm] = useState(false);
+  const [countdownNow, setCountdownNow] = useState<number | null>(null);
 
-  const event = getEventById(params.id)
+  const event = getEventById(params.id);
 
   useEffect(() => {
-    setCountdownNow(Date.now())
-    const timer = window.setInterval(() => setCountdownNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [params.id])
+    setCountdownNow(Date.now());
+    const timer = window.setInterval(() => setCountdownNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [params.id]);
 
   if (!event) {
     return (
-      <section className="shell" style={{ padding: '56px 0' }}>
+      <section className="shell" style={{ padding: "56px 0" }}>
         <EmptyState
           title="This event isn't on the board"
           description="It may have been removed, or the link might be wrong. Head back to the full listing to find what you're looking for."
@@ -64,71 +73,115 @@ export default function EventDetailPage({
           }
         />
       </section>
-    )
+    );
   }
 
-  const past = isPastEvent(event)
-  const full = isFullEvent(event)
-  const cancelled = event.cancelled
+  const past = isPastEvent(event);
+  const full = isFullEvent(event);
+  const cancelled = event.cancelled;
   const deadlinePassed = Boolean(
     event.registrationDeadline &&
-      countdownNow !== null &&
-      countdownNow >= new Date(event.registrationDeadline).getTime(),
-  )
+    countdownNow !== null &&
+    countdownNow >= new Date(event.registrationDeadline).getTime(),
+  );
   const status = cancelled
-    ? 'cancelled'
+    ? "cancelled"
     : isRegistrationClosed(event, countdownNow ?? 0)
-      ? 'closed'
+      ? "closed"
       : full
-        ? 'full'
-        : 'open'
+        ? "full"
+        : "open";
 
-  const isLoggedInStudent = currentUser?.role === 'student'
+  const isLoggedInStudent = currentUser?.role === "student";
   const alreadyRegistered =
-    isLoggedInStudent && !cancelled && isStudentRegistered(currentUser.id, event.id)
+    isLoggedInStudent &&
+    !cancelled &&
+    isStudentRegistered(currentUser.id, event.id);
+  const waitlistEntry = isLoggedInStudent
+    ? getWaitlistForStudent(currentUser.id).find(
+        (entry) => entry.eventId === event.id && entry.status === "active",
+      )
+    : undefined;
+  const alreadyWaitlisted =
+    isLoggedInStudent && isStudentOnWaitlist(currentUser.id, event.id);
   const canRegister =
-    !past && !full && !cancelled && !deadlinePassed && isLoggedInStudent && !alreadyRegistered
+    !past &&
+    !full &&
+    !cancelled &&
+    !deadlinePassed &&
+    isLoggedInStudent &&
+    !alreadyRegistered;
+  const canJoinWaitlist =
+    !past &&
+    full &&
+    !cancelled &&
+    !deadlinePassed &&
+    isLoggedInStudent &&
+    !alreadyRegistered &&
+    !alreadyWaitlisted;
 
   const handleRegister = (e: React.FormEvent) => {
-    e.preventDefault()
-    setFeedback(null)
+    e.preventDefault();
+    setFeedback(null);
 
     if (!isLoggedInStudent) {
       setFeedback({
-        type: 'error',
-        message: 'Registration failed: You must be logged in as a student.',
-      })
-      return
+        type: "error",
+        message: "Registration failed: You must be logged in as a student.",
+      });
+      return;
     }
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
 
     // Execute registration with validation, store write & seat deduction
-    const result = registerStudentForEvent(currentUser.id, event.id)
+    const result = registerStudentForEvent(currentUser.id, event.id);
 
-    setIsSubmitting(false)
+    setIsSubmitting(false);
 
     if (result.success) {
       setFeedback({
-        type: 'success',
+        type: "success",
         message: result.message,
-      })
-      setShowRegistrationForm(false)
+      });
+      setShowRegistrationForm(false);
       // Trigger re-render to update UI with latest seatsAvailable
-      setRefreshKey((prev) => prev + 1)
+      setRefreshKey((prev) => prev + 1);
     } else {
       setFeedback({
-        type: 'error',
+        type: "error",
         message: result.message,
-      })
+      });
     }
-  }
+  };
+
+  const handleJoinWaitlist = () => {
+    setFeedback(null);
+
+    if (!isLoggedInStudent) {
+      setFeedback({
+        type: "error",
+        message: "Waitlist failed: You must be logged in as a student.",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    const result = joinEventWaitlist(currentUser.id, event.id);
+    setIsSubmitting(false);
+
+    setFeedback({
+      type: result.success ? "success" : "error",
+      message: result.message,
+    });
+    if (result.success) setRefreshKey((prev) => prev + 1);
+  };
 
   return (
-    <section className="shell" style={{ padding: '40px 0 64px' }}>
+    <section className="shell" style={{ padding: "40px 0 64px" }}>
       <Link
         href="/events"
-        style={{ fontSize: 13.5, fontWeight: 600, textDecoration: 'none' }}
+        style={{ fontSize: 13.5, fontWeight: 600, textDecoration: "none" }}
       >
         ← All events
       </Link>
@@ -138,29 +191,31 @@ export default function EventDetailPage({
         <div
           style={{
             marginTop: 20,
-            padding: '14px 18px',
-            borderRadius: 'var(--radius)',
+            padding: "14px 18px",
+            borderRadius: "var(--radius)",
             border: `1.5px solid ${
-              feedback.type === 'success' ? 'var(--green)' : 'var(--rust)'
+              feedback.type === "success" ? "var(--green)" : "var(--rust)"
             }`,
             background:
-              feedback.type === 'success' ? 'var(--green-bg)' : 'var(--rust-bg)',
-            color: feedback.type === 'success' ? '#1c4d34' : '#792411',
+              feedback.type === "success"
+                ? "var(--green-bg)"
+                : "var(--rust-bg)",
+            color: feedback.type === "success" ? "#1c4d34" : "#792411",
             fontSize: 14.5,
             fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
           }}
         >
           <span>{feedback.message}</span>
-          {feedback.type === 'success' && (
+          {feedback.type === "success" && (
             <Link
               href="/registrations"
               style={{
                 fontSize: 13,
                 fontWeight: 600,
-                textDecoration: 'underline',
+                textDecoration: "underline",
                 marginLeft: 12,
               }}
             >
@@ -172,8 +227,8 @@ export default function EventDetailPage({
 
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: '1.6fr 1fr',
+          display: "grid",
+          gridTemplateColumns: "1.6fr 1fr",
           gap: 32,
           marginTop: 20,
         }}
@@ -185,188 +240,232 @@ export default function EventDetailPage({
           <p style={{ marginTop: 16, fontSize: 15.5 }}>{event.description}</p>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {event.registrationDeadline && (
-          <div
-            role="status"
-            style={{
-              padding: '12px 16px',
-              border: '1px solid var(--line)',
-              borderRadius: 'var(--radius)',
-              background: deadlinePassed ? 'var(--rust-bg)' : 'var(--green-bg)',
-              color: deadlinePassed ? '#792411' : '#1c4d34',
-              fontSize: 14,
-              fontWeight: 600,
-            }}
-          >
-            {deadlinePassed
-              ? 'Registration is closed.'
-              : countdownNow === null
-                ? 'Loading registration countdown…'
-                : `Registration closes in ${formatCountdown(new Date(event.registrationDeadline).getTime() - countdownNow)}.`}
-          </div>
-          )}
-
-        <aside
-          className="card-surface"
-          style={{
-            padding: 24,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 14,
-            height: 'fit-content',
-          }}
-        >
-          <StatusBadge status={status} />
-          <Detail label="Date" value={formatDate(event.date)} />
-          <Detail label="Time" value={formatTime(event.date)} />
-          {event.registrationDeadline ? (
-            <Detail
-              label="Registration closes"
-              value={formatDate(event.registrationDeadline) + ' at ' + formatTime(event.registrationDeadline)}
-            />
-          ) : (
-            <Detail label="Registration closes" value="No deadline set" />
-          )}
-          <Detail label="Venue" value={event.venue} />
-          <Detail
-            label="Seats"
-            value={`${event.seatsAvailable} of ${event.capacity} available`}
-          />
-
-          {!isLoggedInStudent && (
             <div
+              role="status"
               style={{
-                fontSize: 13,
-                padding: '10px 12px',
-                background: '#fef3c7',
-                border: '1px solid #fde68a',
-                borderRadius: 'var(--radius)',
-                color: '#92400e',
-              }}
-            >
-              🔒 <strong>Student Login Required</strong>: Please switch to a student account in the navigation bar to register.
-            </div>
-          )}
-
-          {alreadyRegistered && (
-            <div
-              style={{
-                fontSize: 13.5,
-                padding: '10px 12px',
-                background: 'var(--green-bg)',
-                border: '1.5px solid var(--green)',
-                borderRadius: 'var(--radius)',
-                color: '#1c4d34',
+                padding: "12px 16px",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                background: deadlinePassed
+                  ? "var(--rust-bg)"
+                  : "var(--green-bg)",
+                color: deadlinePassed ? "#792411" : "#1c4d34",
+                fontSize: 14,
                 fontWeight: 600,
               }}
             >
-              ✓ You are registered for this event
+              {deadlinePassed
+                ? "Registration is closed."
+                : countdownNow === null
+                  ? "Loading registration countdown…"
+                  : `Registration closes in ${formatCountdown(new Date(event.registrationDeadline).getTime() - countdownNow)}.`}
             </div>
           )}
 
-          {canRegister && !showRegistrationForm && (
-            <button
-              className="btn btn-primary"
-              onClick={() => setShowRegistrationForm(true)}
-              style={{ marginTop: 4 }}
-            >
-              Register for Event
-            </button>
-          )}
+          <aside
+            className="card-surface"
+            style={{
+              padding: 24,
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+              height: "fit-content",
+            }}
+          >
+            <StatusBadge status={status} />
+            <Detail label="Date" value={formatDate(event.date)} />
+            <Detail label="Time" value={formatTime(event.date)} />
+            {event.registrationDeadline ? (
+              <Detail
+                label="Registration closes"
+                value={
+                  formatDate(event.registrationDeadline) +
+                  " at " +
+                  formatTime(event.registrationDeadline)
+                }
+              />
+            ) : (
+              <Detail label="Registration closes" value="No deadline set" />
+            )}
+            <Detail label="Venue" value={event.venue} />
+            <Detail
+              label="Seats"
+              value={`${event.seatsAvailable} of ${event.capacity} available`}
+            />
 
-          {canRegister && showRegistrationForm && (
-            <form
-              onSubmit={handleRegister}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 12,
-                marginTop: 8,
-                paddingTop: 12,
-                borderTop: '1.5px dashed var(--line)',
-              }}
-            >
-              <h3 style={{ fontSize: 16 }}>Confirm Registration</h3>
-              <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
-                Registering as <strong>{currentUser.name}</strong> ({currentUser.id})
+            {!isLoggedInStudent && (
+              <div
+                style={{
+                  fontSize: 13,
+                  padding: "10px 12px",
+                  background: "#fef3c7",
+                  border: "1px solid #fde68a",
+                  borderRadius: "var(--radius)",
+                  color: "#92400e",
+                }}
+              >
+                🔒 <strong>Student Login Required</strong>: Please switch to a
+                student account in the navigation bar to register.
               </div>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
-                <span>Department / Branch (Optional)</span>
-                <input
-                  type="text"
-                  placeholder="e.g. Computer Science, 3rd Year"
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
+            )}
+
+            {alreadyRegistered && (
+              <div
+                style={{
+                  fontSize: 13.5,
+                  padding: "10px 12px",
+                  background: "var(--green-bg)",
+                  border: "1.5px solid var(--green)",
+                  borderRadius: "var(--radius)",
+                  color: "#1c4d34",
+                  fontWeight: 600,
+                }}
+              >
+                ✓ You are registered for this event
+              </div>
+            )}
+
+            {alreadyWaitlisted && waitlistEntry && (
+              <div
+                style={{
+                  fontSize: 13.5,
+                  padding: "10px 12px",
+                  background: "#fff7ed",
+                  border: "1.5px solid #fdba74",
+                  borderRadius: "var(--radius)",
+                  color: "#9a3412",
+                  fontWeight: 600,
+                }}
+              >
+                You are #{getWaitlistPosition(waitlistEntry)} on the waitlist
+              </div>
+            )}
+
+            {canRegister && !showRegistrationForm && (
+              <button
+                className="btn btn-primary"
+                onClick={() => setShowRegistrationForm(true)}
+                style={{ marginTop: 4 }}
+              >
+                Register for Event
+              </button>
+            )}
+
+            {canRegister && showRegistrationForm && (
+              <form
+                onSubmit={handleRegister}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  marginTop: 8,
+                  paddingTop: 12,
+                  borderTop: "1.5px dashed var(--line)",
+                }}
+              >
+                <h3 style={{ fontSize: 16 }}>Confirm Registration</h3>
+                <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>
+                  Registering as <strong>{currentUser.name}</strong> (
+                  {currentUser.id})
+                </div>
+                <label
                   style={{
-                    padding: '8px 10px',
-                    border: '1.5px solid var(--line)',
-                    borderRadius: 'var(--radius)',
-                    fontSize: 13.5,
-                    background: 'var(--paper-raised)',
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                    fontSize: 13,
                   }}
-                />
-              </label>
+                >
+                  <span>Department / Branch (Optional)</span>
+                  <input
+                    type="text"
+                    placeholder="e.g. Computer Science, 3rd Year"
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    style={{
+                      padding: "8px 10px",
+                      border: "1.5px solid var(--line)",
+                      borderRadius: "var(--radius)",
+                      fontSize: 13.5,
+                      background: "var(--paper-raised)",
+                    }}
+                  />
+                </label>
 
-              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={isSubmitting}
+                    style={{ flex: 1 }}
+                  >
+                    {isSubmitting ? "Registering..." : "Submit Registration"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setShowRegistrationForm(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {canJoinWaitlist && (
+              <button
+                className="btn btn-primary"
+                onClick={handleJoinWaitlist}
+                disabled={isSubmitting}
+                style={{ marginTop: 4 }}
+              >
+                {isSubmitting ? "Joining..." : "Join Waitlist"}
+              </button>
+            )}
+
+            {!canRegister &&
+              !canJoinWaitlist &&
+              !alreadyRegistered &&
+              !alreadyWaitlisted && (
                 <button
-                  type="submit"
                   className="btn btn-primary"
-                  disabled={isSubmitting}
-                  style={{ flex: 1 }}
+                  disabled
+                  style={{ marginTop: 4 }}
                 >
-                  {isSubmitting ? 'Registering...' : 'Submit Registration'}
+                  {cancelled
+                    ? "Event Cancelled"
+                    : deadlinePassed
+                      ? "Registration Closed"
+                      : past
+                        ? "Registration Closed"
+                        : full
+                          ? "Waitlist Unavailable"
+                          : "Login Required"}
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setShowRegistrationForm(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-
-          {!canRegister && !alreadyRegistered && (
-            <button
-              className="btn btn-primary"
-              disabled
-              style={{ marginTop: 4 }}
-            >
-              {cancelled
-                ? 'Event Cancelled'
-                : deadlinePassed
-                  ? 'Registration Closed'
-                : past
-                  ? 'Registration Closed'
-                  : full
-                    ? 'Event Full'
-                    : 'Login Required'}
-            </button>
-          )}
-        </aside>
+              )}
+          </aside>
         </div>
       </div>
     </section>
-  )
+  );
 }
 
 function formatCountdown(milliseconds: number) {
-  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000))
-  const days = Math.floor(totalSeconds / 86_400)
-  const hours = Math.floor((totalSeconds % 86_400) / 3_600)
-  const minutes = Math.floor((totalSeconds % 3_600) / 60)
-  const seconds = totalSeconds % 60
-  return `${days}d ${hours}h ${minutes}m ${seconds}s`
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${days}d ${hours}h ${minutes}m ${seconds}s`;
 }
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{label}</div>
+      <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{label}</div>
       <div style={{ fontSize: 14.5, fontWeight: 500 }}>{value}</div>
     </div>
-  )
+  );
 }
-
