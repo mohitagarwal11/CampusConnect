@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, KeyboardEvent, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import {
@@ -14,6 +14,8 @@ import {
   updateEvent,
   validateEventInput,
 } from "@/data/events";
+import { getUserById } from "@/data/auth";
+import { registrations } from "@/data/registrations";
 import EmptyState from "@/components/EmptyState";
 import StatusBadge from "@/components/StatusBadge";
 
@@ -46,6 +48,8 @@ export default function OrganizerPage() {
   const [, setRevision] = useState(0);
   const [form, setForm] = useState<EventInput>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -63,8 +67,10 @@ export default function OrganizerPage() {
   const myEvents = events.filter(
     (event) => event.organizerId === currentUser.id,
   );
+  const selectedEvent = myEvents.find((event) => event.id === selectedEventId);
 
   function startCreate() {
+    setIsFormOpen(true);
     setEditingId(null);
     setForm(EMPTY_FORM);
     setFormError("");
@@ -72,6 +78,8 @@ export default function OrganizerPage() {
   }
 
   function startEdit(event: CampusEvent) {
+    setIsFormOpen(true);
+    setSelectedEventId(null);
     setEditingId(event.id);
     setForm({
       name: event.name,
@@ -107,6 +115,22 @@ export default function OrganizerPage() {
     setNotice(editingId ? "Event updated." : "Event created.");
     setEditingId(null);
     setForm(EMPTY_FORM);
+    setIsFormOpen(false);
+  }
+
+  function openEventDetails(event: CampusEvent) {
+    setSelectedEventId(event.id);
+    setNotice("");
+  }
+
+  function handleEventRowKeyDown(
+    event: KeyboardEvent<HTMLLIElement>,
+    campusEvent: CampusEvent,
+  ) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openEventDetails(campusEvent);
+    }
   }
 
   function handleCancel(event: CampusEvent) {
@@ -151,17 +175,18 @@ export default function OrganizerPage() {
         </p>
       )}
 
-      <form
-        onSubmit={submitEvent}
-        className="card-surface"
-        style={{
-          padding: 20,
-          marginBottom: 24,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: 14,
-        }}
-      >
+      {isFormOpen && (
+        <form
+          onSubmit={submitEvent}
+          className="card-surface"
+          style={{
+            padding: 20,
+            marginBottom: 24,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 14,
+          }}
+        >
         <h2 style={{ gridColumn: "1 / -1", fontSize: 19 }}>
           {editingId ? "Edit event" : "New event"}
         </h2>
@@ -248,19 +273,27 @@ export default function OrganizerPage() {
           <button className="btn btn-primary" type="submit">
             {editingId ? "Save changes" : "Create event"}
           </button>
-          {editingId && (
-            <button
-              className="btn btn-secondary"
-              type="button"
-              onClick={startCreate}
-            >
-              Stop editing
-            </button>
-          )}
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={() => {
+              setIsFormOpen(false);
+              setEditingId(null);
+              setFormError("");
+            }}
+          >
+            Cancel
+          </button>
         </div>
-      </form>
+        </form>
+      )}
 
-      {myEvents.length === 0 ? (
+      {selectedEvent ? (
+        <OrganizerEventDetails
+          event={selectedEvent}
+          onBack={() => setSelectedEventId(null)}
+        />
+      ) : myEvents.length === 0 ? (
         <EmptyState
           title="No events posted yet"
           description="Once you create an event, it'll show up here."
@@ -279,6 +312,13 @@ export default function OrganizerPage() {
               <li
                 key={event.id}
                 className="card-surface"
+                role="button"
+                tabIndex={0}
+                aria-label={`View details for ${event.name}`}
+                onClick={() => openEventDetails(event)}
+                onKeyDown={(keyboardEvent) =>
+                  handleEventRowKeyDown(keyboardEvent, event)
+                }
                 style={{
                   padding: "18px 20px",
                   display: "flex",
@@ -289,17 +329,15 @@ export default function OrganizerPage() {
                 }}
               >
                 <div>
-                  <Link
-                    href={`/events/${event.id}`}
+                  <span
                     style={{
                       fontFamily: "var(--font-display)",
                       fontWeight: 600,
                       fontSize: 17,
-                      textDecoration: "none",
                     }}
                   >
                     {event.name}
-                  </Link>
+                  </span>
                   <div
                     style={{
                       fontSize: 13.5,
@@ -329,13 +367,19 @@ export default function OrganizerPage() {
                     <>
                       <button
                         className="btn btn-secondary"
-                        onClick={() => startEdit(event)}
+                        onClick={(clickEvent) => {
+                          clickEvent.stopPropagation();
+                          startEdit(event);
+                        }}
                       >
                         Edit
                       </button>
                       <button
                         className="btn btn-secondary"
-                        onClick={() => handleCancel(event)}
+                        onClick={(clickEvent) => {
+                          clickEvent.stopPropagation();
+                          handleCancel(event);
+                        }}
                       >
                         Cancel event
                       </button>
@@ -348,5 +392,179 @@ export default function OrganizerPage() {
         </ul>
       )}
     </section>
+  );
+}
+
+function OrganizerEventDetails({
+  event,
+  onBack,
+}: {
+  event: CampusEvent;
+  onBack: () => void;
+}) {
+  const confirmedRegistrations = registrations.filter(
+    (registration) =>
+      registration.eventId === event.id && registration.status === "confirmed",
+  );
+  const registeredCount = event.capacity - event.seatsAvailable;
+  const registrationRate = event.capacity
+    ? Math.round((registeredCount / event.capacity) * 100)
+    : 0;
+  const status = event.cancelled
+    ? "cancelled"
+    : isRegistrationClosed(event)
+      ? "closed"
+      : event.seatsAvailable <= 0
+        ? "full"
+        : "open";
+
+  return (
+    <section aria-labelledby="event-details-title">
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button className="btn btn-secondary" onClick={onBack}>
+          ← Back to events
+        </button>
+        <Link className="btn btn-secondary" href={`/events/${event.id}`}>
+          View public page
+        </Link>
+      </div>
+
+      <div className="card-surface" style={{ padding: 24, marginTop: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 16,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <span className="eyebrow-tag">event overview</span>
+            <h2 id="event-details-title" style={{ fontSize: 28, marginTop: 10 }}>
+              {event.name}
+            </h2>
+            <p style={{ marginTop: 8, maxWidth: 680 }}>{event.description}</p>
+          </div>
+          <StatusBadge status={status} />
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+            gap: 10,
+            marginTop: 24,
+          }}
+        >
+          <DetailStat label="Registered" value={String(registeredCount)} />
+          <DetailStat label="Capacity" value={String(event.capacity)} />
+          <DetailStat label="Seats left" value={String(event.seatsAvailable)} />
+          <DetailStat label="Filled" value={`${registrationRate}%`} />
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+            gap: 14,
+            marginTop: 24,
+            paddingTop: 20,
+            borderTop: "1px solid var(--line)",
+            color: "var(--ink-soft)",
+          }}
+        >
+          <div>
+            <strong style={{ color: "var(--ink)" }}>When</strong>
+            <div style={{ marginTop: 4 }}>
+              {new Date(event.date).toLocaleString("en-IN", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </div>
+          </div>
+          <div>
+            <strong style={{ color: "var(--ink)" }}>Where</strong>
+            <div style={{ marginTop: 4 }}>{event.venue}</div>
+          </div>
+          <div>
+            <strong style={{ color: "var(--ink)" }}>Category</strong>
+            <div style={{ marginTop: 4 }}>{event.category}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card-surface" style={{ padding: 24, marginTop: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <h2 style={{ fontSize: 21 }}>Registered students</h2>
+            <p style={{ marginTop: 5 }}>
+              Confirmed attendee records for this event.
+            </p>
+          </div>
+          <span className="eyebrow-tag">
+            {confirmedRegistrations.length} attendee record
+            {confirmedRegistrations.length === 1 ? "" : "s"}
+          </span>
+        </div>
+
+        {confirmedRegistrations.length === 0 ? (
+          <p style={{ marginTop: 20 }}>No individual registrations recorded yet.</p>
+        ) : (
+          <ul
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+              gap: 10,
+              marginTop: 20,
+            }}
+          >
+            {confirmedRegistrations.map((registration) => {
+              const student = getUserById(registration.studentId);
+              return (
+                <li
+                  key={registration.id}
+                  style={{
+                    border: "1px solid var(--line)",
+                    borderRadius: "var(--radius)",
+                    padding: "12px 14px",
+                  }}
+                >
+                  <strong>{student?.name ?? "Unknown student"}</strong>
+                  <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>
+                    Registered {new Date(registration.registeredAt).toLocaleDateString("en-IN")}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function DetailStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        background: "var(--slate-bg)",
+        borderRadius: "var(--radius)",
+        padding: "14px 16px",
+      }}
+    >
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink-soft)" }}>
+        {label}
+      </div>
+      <strong style={{ display: "block", fontSize: 26, marginTop: 3 }}>{value}</strong>
+    </div>
   );
 }
